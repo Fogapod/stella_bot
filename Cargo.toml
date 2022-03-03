@@ -1,0 +1,17 @@
+[package]
+name = "stellars"
+version = "0.1.0"
+edition = "2018"
+
+[lib]
+name = "stellars"
+crate-type = ["cdylib"]
+
+[dependencies]
+pyo3 = "0.16.0"
+
+[profile.release]
+codegen-units = 1
+lto = true
+panic = 'unwind'
+strip = true

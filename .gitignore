@@ -1,14 +1,21 @@
+__pycache__
+.mypy_cache
 *.pyc
 *.json
 *.env
 *.so
 *.service
+*.exe
 .venv
 .idea
+.vscode
 fonts
 nppBackup
-eros.py
 command_search.c
-.vscode
-*.exe
 max_prefix_weights
+eros.py
+
+# rust build dir
+target
+# too noisy, no need for it to be here
+Cargo.lock
