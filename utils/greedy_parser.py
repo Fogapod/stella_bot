@@ -4,18 +4,21 @@ if you copy this but make your repository private, ur weird
 pls be nice to me if you do copy it that's all i want :pleading:
 """
 from __future__ import annotations
+
 import contextlib
-import itertools
 import inspect
+import itertools
 import typing
-from typing import Union, Any, Type, List, Optional, Callable, Set, Tuple, TypeVar, TYPE_CHECKING
-from utils.useful import StellaContext
+
+from typing import TYPE_CHECKING, Any, Callable, List, Optional, Set, Tuple, Type, TypeVar, Union
+
+from discord.ext import commands
+from discord.ext.commands import ArgumentParsingError, CommandError
 from discord.ext.commands.errors import BadUnionArgument
+
 from utils.errors import ConsumerUnableToConvert
 from utils.flags import SFlagCommand, find_flag
-from utils.useful import isiterable
-from discord.ext import commands
-from discord.ext.commands import CommandError, ArgumentParsingError
+from utils.useful import StellaContext, isiterable
 
 T = TypeVar('T')
 if TYPE_CHECKING:
@@ -24,15 +27,15 @@ if TYPE_CHECKING:
 
 class WithCommaStringView(commands.view.StringView):
     """Custom StringView for Separator and Consumer class to use."""
-    def __init__(self, view):
+    def __init__(self, view: Optional[commands.view.StringView]):
         super().__init__(view.buffer)
         self.old_view = view
 
     def update_values(self):
-        """Update the current StringView value into this object""" 
+        """Update the current StringView value into this object"""
         self.__dict__.update({key: getattr(self.old_view, key) for key in ["previous", "index", "end"]})
 
-    def get_parser(self, converter: "BaseGreedy") -> Optional[int]:
+    def get_parser(self, converter: BaseGreedy) -> Optional[int]:
         """Tries to get a separator within an argument, return None if it can't find any."""
         if not hasattr(converter, "separators"):
             return
@@ -46,10 +49,10 @@ class WithCommaStringView(commands.view.StringView):
                         break
                     else:
                         escaped.append(pos - 1)
-                    
+
                 pos += 1
                 previous = current
-        
+
         for offset, escape in enumerate(escaped):
             maximum = self.index + escape - offset
             self.buffer = self.buffer[0: maximum] + self.buffer[maximum + 1: self.end]
@@ -62,12 +65,12 @@ class WithCommaStringView(commands.view.StringView):
         """Gets a word that ends with ','"""
         self.previous = self.index
         offset = 0
-        PARSERSIZE = 1
+        PARSER_SIZE = 1
         # Undo if there is a space, to not capture it
         while self.buffer[self.index + end - (1 + offset)].isspace():
             offset += 1
         result = self.buffer[self.index:self.index + (end - offset)]
-        self.index += end + PARSERSIZE
+        self.index += end + PARSER_SIZE
         return result
 
 
@@ -134,25 +137,31 @@ class Separator(BaseGreedy):
     """Allow Greedy to be parse in a way that it will try to find ',' or any
        other passed separator in an argument, and will allow spaced argument to be
        passed given that there are a separator at the end of each argument.
-       
+
+       If a value failed to be converted, it will raise an error.
+
        Returns an empty list when none of the argument was valid."""
 
-    async def actual_greedy_parsing(self, command: commands.Command, ctx: commands.Context, param: inspect.Parameter,
+    async def actual_greedy_parsing(self, command: commands.Command, ctx: StellaContext, param: inspect.Parameter,
                                     required: bool, converter: T, optional: Optional[bool] = False) -> List[T]:
         view = ctx.view
         result = []
+        _exit = False
         while not view.eof:
-            previous = view.index
             view.skip_ws()
             try:
                 if pos := view.get_parser(param.annotation):
                     argument = view.get_arg_parser(pos)
                 else:
                     argument = view.get_quoted_word()
+                    _exit = True
+
                 value = await commands.run_converters(ctx, converter, argument, param)
+                if _exit:
+                    result.append(value)
+                    break
             except (CommandError, ArgumentParsingError):
-                view.index = previous
-                break
+                raise  # allow raising for Seperator
             else:
                 result.append(value)
 

@@ -1,6 +1,5 @@
 __pycache__
 .mypy_cache
-*.pyc
 *.json
 *.env
 *.so
@@ -10,9 +9,10 @@ __pycache__
 .idea
 .vscode
 fonts
+d_json
 nppBackup
-command_search.c
 max_prefix_weights
+command_search.c
 eros.py
 
 # rust build dir

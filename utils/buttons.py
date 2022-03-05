@@ -5,20 +5,22 @@ import contextlib
 import inspect
 import os
 import time
+
 from copy import copy
+from enum import Enum
 from functools import partial
-from typing import (TYPE_CHECKING, Any, AsyncGenerator, Callable, Coroutine,
-                    Dict, Iterable, Optional, Tuple, Type, Union)
+from typing import (TYPE_CHECKING, Any, AsyncGenerator, Callable, Coroutine, Dict, Iterable, List, Optional, Tuple, Type,
+                    Union)
 
 import discord
+
 from discord import ui
 from discord.ext import commands
 
 from addons.modal import Modal, TextInput
 from addons.modal.raw import ResponseModal
 from utils.context_managers import UserLock
-from utils.menus import (ListPageInteractionBase, MenuBase,
-                         MenuViewInteractionBase)
+from utils.menus import ListPageInteractionBase, MenuBase, MenuViewInteractionBase
 from utils.useful import StellaEmbed
 
 if TYPE_CHECKING:
@@ -181,7 +183,7 @@ class MenuViewBase(ViewIterationAuthor):
             if view is self:
                 if m := bot.get_message(m_id):
                     message = m
-        
+
         if message is None:
             return
 
@@ -190,9 +192,85 @@ class MenuViewBase(ViewIterationAuthor):
         await message.edit(view=self)
 
 
+class QueueView(CallbackView):
+    class State(Enum):
+        confirmed = "CONFIRMED"
+        denied = "DENIED"
+
+    def __init__(self, ctx: StellaContext, *respondents: Union[discord.Member, discord.User], delete_after: bool = False):
+        super().__init__()
+        self.ctx = ctx
+        self.respondents = respondents
+        self.delete_after = delete_after
+        self.message = None
+        self.accepted_respondents = []
+        self.denied_respondents = []
+
+    async def send(self, content: str, **kwargs: Any) -> List[Optional[Union[discord.Member, discord.User]]]:
+        return await self.start(content=content, **kwargs)
+
+    async def start(self, **kwargs) -> List[Optional[Union[discord.Member, discord.User]]]:
+        self.message = await self.ctx.maybe_reply(view=self, **kwargs)
+        await self.wait()
+        return self.accepted_respondents
+
+    async def on_member_respond(self, member: Union[discord.Member, discord.User],
+                                interaction: discord.Interaction, response: State):
+        pass
+
+    async def handle_callback(self, callback: Callable, item: discord.ui.Button, interaction: discord.Interaction):
+        await callback(interaction)
+        summation = len(self.accepted_respondents) + len(self.denied_respondents)
+        if summation == len(self.respondents):
+            self.stop()
+
+    @discord.ui.button(label="Confirm", style=discord.ButtonStyle.green)
+    async def on_confirm(self, button: discord.ui.Button, interaction: discord.Interaction) -> None:
+        for member in self.respondents:
+            if member.id == getattr(interaction.user, "id", None):
+                self.accepted_respondents.append(member)
+                await self.on_member_respond(member, interaction, self.State.confirmed)
+                break
+
+    @discord.ui.button(label="Deny", style=discord.ButtonStyle.red)
+    async def on_denied(self, button: discord.ui.Button, interaction: discord.Interaction) -> None:
+        for member in self.respondents:
+            if member.id == getattr(interaction.user, "id", None):
+                self.denied_respondents.append(member)
+                await self.on_member_respond(member, interaction, self.State.denied)
+                break
+
+    async def interaction_check(self, interaction: discord.Interaction) -> bool:
+        uid = getattr(interaction.user, "id", None)
+        if uid in [u.id for u in self.respondents]:
+            return True
+
+        users = ", ".join(map(str, self.respondents))
+        await interaction.response.send_message(f"Sorry, only {users} can respond to this prompt.", ephemeral=True)
+
+    async def on_stop(self):
+        if self.message is None:
+            return
+
+        if self.delete_after:
+            await self.message.delete(delay=0)
+        else:
+            for item in self.children:
+                item.disabled = True
+
+            await self.message.edit(view=self)
+
+
+    def stop(self):
+        self.ctx.bot.loop.create_task(self.on_stop())
+        super().stop()
+
+
+
 class ConfirmView(CallbackView):
     """ConfirmView literally handles confirmation where it asks the user at start() and returns a Tribool"""
-    def __init__(self, ctx: StellaContext, *, to_respond: Optional[discord.User] = None, delete_after: Optional[bool] = False, message_error=None):
+    def __init__(self, ctx: StellaContext, *, to_respond: Optional[Union[discord.User, discord.Member]] = None,
+                 delete_after: bool = False, message_error: Optional[str] = None):
         super().__init__()
         self.result = None
         self.message = None
